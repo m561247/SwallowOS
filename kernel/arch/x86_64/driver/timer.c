@@ -1,7 +1,7 @@
 #include <stdint.h>
 #include <kernel/pic.h>
 #include <kernel/io.h>
-#include "task.h"
+#include "../sched/task.h"
 
 #define PIT_IRQ_NUMBER        0x0
 #define PIT_IRQ_VECTOR       0x20

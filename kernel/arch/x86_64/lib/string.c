@@ -16,7 +16,7 @@ void *memcpy(void *dest, const void *src, size_t count) {
     const char *s = src;
 
     while (count--) {
-        *tmp++ = *s++
+        *tmp++ = *s++;
     }
     return dest;
 }
@@ -28,4 +28,11 @@ void *memset(void *s, int c, size_t count) {
         *xs++ = c;
     }
     return s;
+}
+
+size_t strlen(const char *s) {
+    const char *sc;
+
+    for (sc = s; *sc != '\0'; ++sc);
+    return sc - s;
 }

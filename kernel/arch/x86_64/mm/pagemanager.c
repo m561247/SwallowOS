@@ -1,10 +1,11 @@
 
 #include <stddef.h>
-#include "constant.h"
+#include "../include/constant.h"
 #include "ram.h"
 #include "pagemanager.h"
 #include "pgtable.h"
 #include <kernel/page.h>
+#include <kernel/printk.h>
 
 
 /* 页分配有很多方法，如bitmap、stack/list、buddy alocations等，这里用最简单的bitmap */
@@ -34,9 +35,7 @@ static void set_frame_map(unsigned int index, uint64_t val) {
 
 
 // 函数 kalloc_frame_init 用于分配并初始化一个页面帧
-pageframe_t kalloc_frame_init() {
-    uint64_t i = 0;
-
+void kalloc_frame_init() {
     /* init ram */
     init_ram();
 
@@ -56,45 +55,43 @@ pageframe_t kalloc_frame_init() {
         for (uint64_t *p = frame_map; p < startframe; ++p)
             *p = 0;
     }
+}
 
-    while(get_frame_map(i)) {
-        i++;
-        if (i == npages) {
-            return NULL;
+static int check_continuous_free_page(uint64_t start, size_t count) {
+    if (start + count >= npages) return -1;     /* out of page frame range */
+
+    for (unsigned int i=0; i<count; ++i) {
+        if (get_frame_map(start + i))
+            return -1;
+    }
+    return 0;
+}
+
+struct page_alloc alloc_pages(size_t count) {
+    struct page_alloc pa = {0, 0};
+    if (count >= npages || count == 0)
+        return pa;
+    for (unsigned int i=0; i <= npages - count; ++i) {
+        if (check_continuous_free_page(i, count) == 0) {
+            for (unsigned int j=0; j<count; ++j)
+                set_frame_map(i + j, 1);
+            pa.page = (char*)startframe + (i * PAGE_SIZE);
+            pa.npages = count;
+            return pa;
         }
     }
-    set_frame_map(i, 1);
-    return ((char*)startframe + (i * PAGE_SIZE)); /* 0x1000(4kb) */
+    return pa;
 }
 
-static uint64_t *pre_frames[PRE_ALLOCATING_NUM] = {0};
-pageframe_t kalloc_frame() {
-    // static uint8_t allocate = 1;  /* whether or not we are going to allocate a new set of praframes */
-    static uint8_t pframe = 0;    /* allocate pointer */
-    pageframe_t ret;
-
-    // if (pframe == PRE_ALLOCATING_NUM)
-    //     allocate = 1;
-    // if (allocate == 1) {
-    //     for (uint32_t i = 0; i < PRE_ALLOCATING_NUM; ++i) {
-    //         pre_frames[i] = kalloc_frame_init();
-    //     }
-    //     pframe = 0;
-    //     allocate = 0;
-    // }
-    ret = kalloc_frame_init();
-
-    return ret;
+void free_pages(struct page_alloc *pa) {
+    if (pa->npages != 0) {
+        unsigned int start = (pa->page - startframe) / PAGE_SIZE;
+        for (unsigned int i=start; i<start + pa->npages; ++i)
+            set_frame_map(i, 0);
+    }
 }
 
-void kfree_frame(pageframe_t a) {
-    if (a < startframe) return;
-
-    unsigned int index = (a - startframe) / PAGE_SIZE;          /* get offset */
-    set_frame_map(index, 0);
-}
-
-
-struct page_alloc alloc_pages(size_t size) {
-
+void page_fault_handler(struct pt_regs *regs) {
+    printk("\nIn exception 14\n Address: %u\n", getcr2());
+    __asm__ volatile ("hlt");
 }

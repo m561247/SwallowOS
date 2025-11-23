@@ -1,5 +1,5 @@
-#ifndef _MM_H
-#define _MM_H
+#ifndef _MALLOC_H
+#define _MALLOC_H
 
 #include <stddef.h>
 #include <kernel/list.h>
@@ -18,7 +18,6 @@ typedef struct {
     };
 } chunk;
 
-void kmemory_init();
 void *kmalloc(size_t size);
 void kfree(void *mem);
 int kmcheck(void);

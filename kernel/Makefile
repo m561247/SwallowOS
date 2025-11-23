@@ -7,7 +7,7 @@ CPPFLAGS?=
 LDFLAGS?=
 LIBS?=
 
-DESTDIR?=
+DESTDIR=$(SYSROOT)/kernel
 PREFIX?=/usr/local
 EXEC_PREFIX?=$(PREFIX)
 BOOTDIR?=$(EXEC_PREFIX)/boot
@@ -16,7 +16,7 @@ INCLUDEDIR?=$(PREFIX)/include
 CFLAGS:=$(CFLAGS) -ffreestanding -Wall -Wextra -no-pie -fno-pic -fomit-frame-pointer
 CPPFLAGS:=$(CPPFLAGS) -D__is_kernel -Iinclude
 LDFLAGS:=$(LDFLAGS)
-LIBS:=$(LIBS) -nostdlib -lk -lgcc
+LIBS:=$(LIBS) -nostdlib -lgcc
 
 ARCHDIR=arch/$(HOSTARCH)
 
@@ -32,20 +32,20 @@ $(KERNEL_ARCH_OBJS) \
 kernel/kernel.o \
 
 OBJS=\
-$(ARCHDIR)/crti.o \
+$(ARCHDIR)/kernel/crti.o \
 $(ARCHDIR)/crtbegin.o \
 $(KERNEL_OBJS) \
 $(ARCHDIR)/crtend.o \
-$(ARCHDIR)/crtn.o \
+$(ARCHDIR)/kernel/crtn.o \
 
 LINK_LIST=\
 $(LDFLAGS) \
-$(ARCHDIR)/crti.o \
+$(ARCHDIR)/kernel/crti.o \
 $(ARCHDIR)/crtbegin.o \
 $(KERNEL_OBJS) \
 $(LIBS) \
 $(ARCHDIR)/crtend.o \
-$(ARCHDIR)/crtn.o \
+$(ARCHDIR)/kernel/crtn.o \
 
 .PHONY: all clean install install-headers install-kernel
 .SUFFIXES: .o .c .S

@@ -1,4 +1,4 @@
-#include <stdio.h>
+#include <kernel/printk.h>
 #include <kernel/string.h>
 #include <kernel/printk.h>
 #include "../driver/floppy.h"
@@ -126,11 +126,10 @@ static void upper_padding(const char *in, char *name8, char *ext3) {
     }   
 }
 
-bool fat12_read_file(fat12_t *fs, const char* name83, uint8_t *out, uint32_t max_len, uint32_t *outlen) {
+static dirent_t* find_by_name(fat12_t *fs, const char *name83, uint8_t sec[BYTES_PER_SECTOR]) {
     char n8[8];     /* basename */
     char e3[3];     /* extension */
     upper_padding(name83, n8, e3);
-    uint8_t sec[BYTES_PER_SECTOR] = {0};
     /* traverse root directories */
     for (uint32_t i=0; i<fs->root_dir_sectors; ++i) {
         if (!read_sector(fs->root_start_lba + i, sec)) return false;
@@ -140,31 +139,46 @@ bool fat12_read_file(fat12_t *fs, const char* name83, uint8_t *out, uint32_t max
             if ((uint8_t)ents[j].name[0] == 0xE5) continue;           /* unused */
             if ((ents[j].attr & 0x0F) == 0x0F) continue;              /* long file name, not supported here */
             if (memcmp((uint8_t*)ents[j].name, (uint8_t*)n8, 8) == 0 && memcmp((uint8_t*)ents[j].ext, (uint8_t*)e3, 3) == 0) {      /* file found */
-                uint32_t remaining = ents[j].size;
-                uint16_t cl = ents[j].first_cluster_number_low;
-                uint32_t pos = 0;
-                while (cl >= 2 && cl < 0xFF8 && remaining > 0) {      /* 0xFF8 means no more clusters in the chain*/
-                    if (pos >= max_len) break;
-                    uint32_t lba = cluster_to_lba(fs, cl);            /* lba */
-                    memset(sec, 0, BYTES_PER_SECTOR);
-                    if (!read_sector(lba, sec))
-                        return false;
-                    uint32_t tocpy = remaining > BYTES_PER_SECTOR ? BYTES_PER_SECTOR : remaining;
-                    if (pos + tocpy > max_len)
-                        tocpy = max_len - pos;
-                    memcpy(out + pos, sec, tocpy);
-                    pos += tocpy;
-                    remaining -= tocpy;
-                    if (!read_fat_entry(fs, cl, &cl))                  /* cluster chain */
-                        return false;
-                }
-                if (outlen)
-                    *outlen = pos;
-                return true;
+                return ents + j;
             }
         }
     }
-    return false;
+    return (dirent_t*)NULL;    
+}
+
+int64_t fat12_get_file_size(fat12_t *fs, const char* name83) {
+    uint8_t sec[BYTES_PER_SECTOR];
+    dirent_t *ent = find_by_name(fs, name83, sec);
+    if (!ent) return -1;
+    return ent->size;
+}
+
+bool fat12_read_file(fat12_t *fs, const char* name83, uint8_t *out, uint32_t max_len, uint32_t *outlen) {
+    uint8_t sec[BYTES_PER_SECTOR];
+    dirent_t *ent = find_by_name(fs, name83, sec);
+    if (!ent) return false;
+
+    uint32_t remaining = ent->size;
+    uint16_t cl = ent->first_cluster_number_low;
+    uint32_t pos = 0;
+    while (cl >= 2 && cl < 0xFF8 && remaining > 0) {      /* 0xFF8 means no more clusters in the chain*/
+        if (pos >= max_len) break;
+        uint32_t lba = cluster_to_lba(fs, cl);            /* lba */
+        memset(sec, 0, BYTES_PER_SECTOR);
+        if (!read_sector(lba, sec))
+            return false;
+        uint32_t tocpy = remaining > BYTES_PER_SECTOR ? BYTES_PER_SECTOR : remaining;
+        if (pos + tocpy > max_len)
+            tocpy = max_len - pos;
+        memcpy(out + pos, sec, tocpy);
+        pos += tocpy;
+        remaining -= tocpy;
+        if (!read_fat_entry(fs, cl, &cl))                  /* cluster chain */
+            return false;
+    }
+    if (outlen)
+        *outlen = pos;
+    return true;
 }
 
 

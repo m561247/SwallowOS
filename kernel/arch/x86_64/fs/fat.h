@@ -1,6 +1,8 @@
 #ifndef FAT_H
 #define FAT_H
 
+#include <stdint.h>
+
 #define BYTES_PER_SECTOR             512
 
 typedef struct fat_BS {
@@ -66,6 +68,7 @@ typedef struct fat12 {
 } fat12_t;
 
 bool fat12_mount(fat12_t *fs);
+int64_t fat12_get_file_size(fat12_t *fs, const char* name83);
 bool fat12_read_file(fat12_t *fs, const char* name83, uint8_t *out, uint32_t max_len, uint32_t *outlen);
 bool fat12_write_file(fat12_t *fs, const char *name83, const uint8_t *data, uint32_t len);
 

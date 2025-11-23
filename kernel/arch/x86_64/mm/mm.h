@@ -1,0 +1,43 @@
+#ifndef _MM_H
+#define _MM_H
+#include <stdint.h>
+#include <kernel/list.h>
+#include "pagemanager.h"
+
+/* vm_flags value */
+#define VM_READ           0x000001
+#define VM_WRITE          0x000002
+#define VM_EXEC           0x000003
+
+struct mm_struct {
+    struct page_alloc stack;
+    struct page_alloc stack0;
+    void* rsp;                              /* the task's kernel stack */
+    void* tss_rsp0;                         /* top of kernel stack to set on tss->rsp0*/ 
+    void* rsp0;                             /* kernel stack */
+    uint32_t cr3;                           /* the task's virtual address space*/
+
+    unsigned long start_code, end_code, start_data, end_data;
+    unsigned long start_brk, brk;
+    unsigned long start_stack;
+
+    struct list_head *vma;
+};
+
+struct vm_area_struct {
+    uint64_t vm_start;
+    uint64_t vm_end;
+    uint64_t vm_flags;
+    struct mm_struct *vm_mm;
+    struct list_head vma_list;
+};
+
+extern const uint64_t mm_rsp_offset;
+extern const uint64_t mm_rsp0_offset;
+extern const uint64_t mm_cr3_offset;
+extern const uint64_t mm_state_offset;
+
+int mm_init(struct mm_struct *mm);
+void mm_clean(struct mm_struct *mm);
+
+#endif

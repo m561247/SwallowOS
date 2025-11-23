@@ -26,12 +26,14 @@ get_to_ring3:
 
     # save current_task_TCB->tss_rsp0 to tss_rsp0
     mov current_task_TCB(%rip), %rsi
-    mov TCB_tss_rsp0_offset(%rip), %rdx
+    mov TCB_mm_offset(%rip), %rdx
+    mov (%rsi, %rdx, 1), %rsi           # load mm into %rsi
+    mov mm_tss_rsp0_offset(%rip), %rdx
     mov (%rsi, %rdx, 1), %rdx
     mov %rdx, tss_rsp0
 
     # load current_task_TCB->rsp
-    mov TCB_rsp_offset(%rip), %rdx
+    mov mm_rsp_offset(%rip), %rdx
     mov (%rsi, %rdx, 1), %rsp
 
     sysretq
@@ -68,6 +70,17 @@ set_ring0_msr:
 get_to_ring0:
     syscall
 
+.global getcr2
+.type getcr2, @function
+getcr2:
+    mov %cr2, %rax
+    ret
+
+.global getcr3
+.type getcr3, @function
+getcr3:
+    mov %cr3, %rax
+    ret
 
 
 

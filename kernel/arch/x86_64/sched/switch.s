@@ -23,15 +23,19 @@ switch_to_task:
 
     call update_time_used
 
-    # save esp to current_task_TCB
+    # load current_task_TCB->mm
     mov current_task_TCB(%rip), %rsi
-    mov TCB_rsp0_offset(%rip), %rcx
-    mov %rsp, (%rsi, %rcx, 1)
-
     # set current task's state
     mov TCB_state_offset(%rip), %rcx
     mov $READY, (%rsi, %rcx, 1)
 
+    mov TCB_mm_offset(%rip), %rcx
+    mov (%rsi, %rcx, 1), %rsi           # load mm into %rsi
+
+
+    # save esp to current_task_TCB->mm
+    mov mm_rsp0_offset(%rip), %rcx
+    mov %rsp, (%rsi, %rcx, 1)
     # load next task's state, next task saved in rdi
     mov %rdi, current_task_TCB
 
@@ -40,16 +44,20 @@ switch_to_task:
     mov TCB_state_offset(%rip), %rcx
     mov $RUNNING, (%rsi, %rcx, 1)
 
+    # load next task's mm
+    mov TCB_mm_offset(%rip), %rcx
+    mov (%rsi, %rcx, 1), %rsi           # load mm into %rsi
+    
     # load rsp0
-    mov TCB_rsp0_offset(%rip), %rcx
+    mov mm_rsp0_offset(%rip), %rcx
     mov (%rsi, %rcx, 1), %rsp
     
     # read cr3
-    mov TCB_cr3_offset(%rip), %rcx
+    mov mm_cr3_offset(%rip), %rcx
     mov (%rsi, %rcx, 1), %rax
 
-    # save current_task_TCB->tss_rsp0 to tss_rsp0
-    mov TCB_tss_rsp0_offset(%rip), %rcx
+    # save current_task_TCB->mm->tss_rsp0 to tss_rsp0
+    mov mm_tss_rsp0_offset(%rip), %rcx
     mov (%rsi, %rcx, 1), %rcx
     mov %rcx, tss_rsp0
 
@@ -69,11 +77,6 @@ switch_to_task:
     pop %rax
     ret
 
-.global getcr3
-.type getcr3, @function
-getcr3:
-    mov %cr3, %rax
-    ret
 
 
     

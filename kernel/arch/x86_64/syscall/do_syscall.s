@@ -11,14 +11,13 @@ do_syscall:
 
     /* save user stack */
     mov current_task_TCB(%rip), %rbx
-    # mov (%rbx), %rbx
-    mov TCB_rsp_offset(%rip), %r12
-    # mov (%r12), %r12
-    # add %r12, %rbx
+    mov TCB_mm_offset(%rip), %r12
+    mov (%rbx, %r12, 1), %rbx           # load mm into %rbx
+    mov mm_rsp_offset(%rip), %r12
     mov %rsp, (%rbx, %r12, 1)
 
     /* load kernel stack */
-    mov TCB_rsp0_offset(%rip), %r12
+    mov mm_rsp0_offset(%rip), %r12
     mov (%rbx, %r12, 1), %rsp
 
     /* syscall number is stored in rax */
@@ -34,11 +33,13 @@ do_syscall:
 
     /* save kernel stack */
     mov current_task_TCB(%rip), %rbx
-    mov TCB_rsp0_offset(%rip), %r12
+    mov TCB_mm_offset(%rip), %r12
+    mov (%rbx, %r12, 1), %rbx           # load mm into %rbx
+    mov mm_rsp0_offset(%rip), %r12
     mov %rsp, (%rbx, %r12, 1)
 
     /* load user stack */
-    mov TCB_rsp_offset(%rip), %r12
+    mov mm_rsp_offset(%rip), %r12
     mov (%rbx, %r12, 1), %rsp
 
     /* restore user regs */

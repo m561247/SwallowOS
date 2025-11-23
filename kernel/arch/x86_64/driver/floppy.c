@@ -1,7 +1,7 @@
-#include <stdio.h>
 #include <stdbool.h>
 #include <kernel/io.h>
 #include <kernel/pic.h>
+#include <kernel/printk.h>
 #include "floppy.h"
 
 /* Floppy registers */
@@ -149,16 +149,21 @@ void floppy_init(void) {
 
 bool floppy_read_chs(uint8_t c, uint8_t h, uint8_t s, uint8_t *buffer512) {
     motor_on(0);
-    if (!fdc_seek(0, h, c)) {
-        motor_off();
-        return false;
-    }
+    int tries = 3;
+    do {
+        if (!fdc_seek(0, h, c)) {
+            if (tries < 0) {
+                motor_off();
+                return false;
+            }
+        } else break;
+    } while(tries--);
 
-    printk("dma setup\n");
+    // printk("dma setup\n");
     dma_setup_read(0x1000, 512);
 
     /* read data: MFM=1 SK=0 MT=0 */
-    printk("read cmd\n");
+    // printk("read cmd\n");
     fdc_send_cmd(0xE6);
     fdc_write((h << 2) | 0);
     fdc_write(c);

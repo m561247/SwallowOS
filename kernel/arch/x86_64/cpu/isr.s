@@ -25,7 +25,12 @@ isr_err_stub    10
 isr_err_stub    11
 isr_err_stub    12
 isr_err_stub    13
-isr_err_stub    14
+
+isr_stub_14:
+    mov %rsp, %rdi
+    call page_fault_handler
+    iretq
+
 isr_no_err_stub 15
 isr_no_err_stub 16
 isr_err_stub    17

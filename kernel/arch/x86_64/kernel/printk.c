@@ -4,8 +4,8 @@
 #include <kernel/string.h>
 #include <kernel/idt.h>
 #include <kernel/printk.h>
-// #include <stdio.h>
-// #include <string.h>
+#include <kernel/tty.h>
+#include "../sched/task.h"
 
 #define EOF (-1)
 #define UINT_MAX    0xffffffffffffffff
@@ -50,12 +50,12 @@ static char* itoa_signed(long value, char* str, int base)
 		*str = '\0';
 		return ret;
 	}
-	if (base == 10 && value < 0)
+	if (value < 0)
 	{
 		value = -value;
 		*str++ = '-';
 	}
-    return itoa_internal(value > 0 ? value : -value, str, base);
+    return itoa_internal(value, str, base);
 }
 
 static char* itoa_unsigned(unsigned long value, char* str, int base) {
@@ -73,6 +73,11 @@ static char* itoa_unsigned(unsigned long value, char* str, int base) {
     return itoa_internal(value, str, base);
 }
 
+static int putchar(char c) {
+    terminal_putchar(c);
+    return 0;
+}
+
 static bool print(const char *data, size_t length) {
     const unsigned char *bytes = (const unsigned char*) data;
     for (size_t i = 0; i < length; ++i)
@@ -81,12 +86,7 @@ static bool print(const char *data, size_t length) {
     return true;
 }
 
-int printk(const char*restrict format, ...) {
-    cli();
-
-    va_list parameters;
-    va_start(parameters, format);
-
+int vprintk_func(const char *format, va_list parameters) {
     int written = 0;
     while (*format != 0) {
         size_t maxrem = UINT_MAX - written;
@@ -141,12 +141,12 @@ int printk(const char*restrict format, ...) {
             if (!print(str, strlen(str)))
                 return -1;
             written += len;
-        } else if (*format == 'u') {
+        } else if (*format == 'u' || *format == 'x') {
             format++;
             char str[32];
             memset(str, 0, 32);
             unsigned long num = (unsigned long) va_arg(parameters, unsigned long);
-            itoa_unsigned(num, str, 10);
+            itoa_unsigned(num, str, (*format == 'u') ? 10 : 16);
             size_t len = strlen(str);
             if (!print(str, strlen(str)))
                 return -1;
@@ -164,8 +164,16 @@ int printk(const char*restrict format, ...) {
             format += len;
         }
     }
-
-    va_end(parameters);
-    sti();
     return written;
+}
+
+int printk(const char*restrict format, ...) {
+    lock_scheduler();
+    int r;
+    va_list parameters;
+    va_start(parameters, format);
+    r = vprintk_func(format, parameters);
+    va_end(parameters);
+    unlock_scheduler();
+    return r;
 }

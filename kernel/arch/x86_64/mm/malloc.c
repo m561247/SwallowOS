@@ -4,6 +4,7 @@
 #include <kernel/page.h>
 #include <kernel/printk.h>
 #include "pagemanager.h"
+#include "../sched/task.h"
 
 #define HEADER_SIZE       ((size_t)&((chunk*)0)->data)
 #define MM_PAGE_NUM                               1024
@@ -11,7 +12,7 @@
 #define is_last_entry(h) ((h)->next==(h))
 
 typedef struct {
-    pageframe_t page;
+    struct page_alloc pa;
     size_t mem_free;
     size_t mem_used;
     size_t mem_meta;
@@ -22,7 +23,6 @@ typedef struct {
 
 page_tag mm_pages[MM_PAGE_NUM] = { NULL };
 int cur_page_tag_index = -1;
-static size_t max_page_free_size = PAGE_SIZE;    /* 存储一个page中的最大可能free size */
 
 /* 初始化一个chunk */
 static void memory_chunk_init(chunk *ck) {
@@ -60,9 +60,9 @@ static void kmemory_page_init(unsigned int page_tag_index) {
     if (page_tag_index >= MM_PAGE_NUM) return;
     page_tag *pt = &mm_pages[page_tag_index];
 
-    void *mem = pt->page;
+    void *mem = pt->pa.page;
     char *mem_start = (char*)(((intptr_t)mem + ALIGN -1) & (~(ALIGN -1)));        /* 向后对齐 */
-    char *mem_end = (char*)(((intptr_t)mem + PAGE_SIZE) & (~(ALIGN - 1)));             /* 向前对齐 */
+    char *mem_end = (char*)(((intptr_t)mem + pt->pa.npages * PAGE_SIZE) & (~(ALIGN - 1)));             /* 向前对齐 */
 
     pt->first = (chunk*)mem_start;                                                    /* 第一个块 */
     chunk *second = pt->first + 1;
@@ -85,7 +85,6 @@ static void kmemory_page_init(unsigned int page_tag_index) {
     // printk("%s(%d, %d): adding chunk %d %d\n", __FUNCTION__, mem, size, len, n);
     pt->free_chunk[n] = second;
     pt->mem_free = len - HEADER_SIZE;                                                /* 为什么这里还要减去一个HEADER_SIZE?在memory_chunk_size已经减去一个了 */
-    max_page_free_size = max_page_free_size < pt->mem_free ? max_page_free_size : pt->mem_free;
     pt->mem_meta = sizeof(chunk) * 2 + HEADER_SIZE;
 }
 
@@ -135,29 +134,32 @@ static void *kmalloc_on_cur_page(size_t size) {
     fetch_ck->used = 1;
     cur_page_tag->mem_free -= (size2 - HEADER_SIZE);
     cur_page_tag->mem_used += size2 - len - HEADER_SIZE;                                          /* 当新增used chunk时，mem_used会改变 */
-    
-    if (cur_page_tag->mem_used + cur_page_tag->mem_free + cur_page_tag->mem_meta != max_page_free_size + sizeof(chunk) * 2 + HEADER_SIZE) {
-        printk("panic");
-    }
 
     return fetch_ck->data;
 }
 
 void *kmalloc(size_t size) {
-    if (size == 0 || size > max_page_free_size) return NULL;
-
+    lock_scheduler();
+    void *p = NULL;
+    if (size == 0) {
+        p = NULL;
+        goto end;
+    }
 
     /* 首次分配需要设置当前的page_tag */
     if (cur_page_tag_index == -1) {
-        pageframe_t pf = kalloc_frame();
-        if (!pf) return NULL;
+        struct page_alloc pa = alloc_pages((3 * sizeof(chunk) + size + PAGE_SIZE - 1) / PAGE_SIZE);
+        if (pa.page == 0) {
+            p = NULL;
+            goto end;
+        }
         cur_page_tag_index = 0;
-        mm_pages[cur_page_tag_index].page = pf;
+        mm_pages[cur_page_tag_index].pa = pa;
         kmemory_page_init(0);
     }
 
     /* 在当前页分配内存 */
-    void *p = kmalloc_on_cur_page(size);
+    p = kmalloc_on_cur_page(size);
 
     /* 当前页无法满足，则在列表里搜索新页 */
     if (!p) {
@@ -166,7 +168,7 @@ void *kmalloc(size_t size) {
             page_tag *tmp_pt = mm_pages + i;
             if (i == cur_page_tag_index)
                 continue;
-            if (first_free_index == -1 && tmp_pt->page == 0) {
+            if (first_free_index == -1 && tmp_pt->pa.page == 0) {
                 first_free_index = i;
                 continue;
             }
@@ -179,9 +181,12 @@ void *kmalloc(size_t size) {
         }
         /* 如果在所有已申请页还未分配内存，则申请新页 */
         if (!p && (first_free_index != -1)) {
-            pageframe_t pf = kalloc_frame();
-            if (!pf) return NULL;
-            mm_pages[first_free_index].page = pf;
+            struct page_alloc pa = alloc_pages((3 * sizeof(chunk) + size + PAGE_SIZE - 1) / PAGE_SIZE);
+            if (pa.page == 0) {
+                p = NULL;
+                goto end;
+            }
+            mm_pages[first_free_index].pa = pa;
             cur_page_tag_index = first_free_index;
             kmemory_page_init(cur_page_tag_index);
             p = kmalloc_on_cur_page(size);
@@ -193,6 +198,8 @@ void *kmalloc(size_t size) {
         printk("check ");
     }
 
+end:
+    unlock_scheduler();
     return p;
 }
 
@@ -224,6 +231,7 @@ static void push_free(chunk *ck) {
 }
 
 void kfree(void *mem) {
+    lock_scheduler();
     chunk *ck = (chunk*)((char*)mem - HEADER_SIZE);
     chunk *next = container_of(ck->all.next, chunk, all);
     chunk *prev = container_of(ck->all.prev, chunk, all);
@@ -265,18 +273,17 @@ void kfree(void *mem) {
         p = p->next;
     }
     if (need_free_page) {
-        kfree_frame(pt->page);
-        pt->page = 0;
-        // for (unsigned int i = 0; i < MM_PAGE_NUM * sizeof(page_tag); ++i) {
-        //     *((char*)mm_pages + i) = 0;
-        // }
+        free_pages(&pt->pa);
+        pt->pa.page = 0;
+        pt->pa.npages = 0;
     }
+    unlock_scheduler();
 }
 
 int kmcheck(void) {
     for (unsigned int i=0; i<MM_PAGE_NUM; ++i) {
         page_tag *pt = &(mm_pages[i]);
-        if (pt->page == 0) continue;
+        if (pt->pa.page == 0) continue;
 
         chunk *t = pt->last;
 
@@ -315,7 +322,7 @@ int kmcheck(void) {
 int km_freecheck(void) {
     for (unsigned int i=0; i<MM_PAGE_NUM; ++i) {
         page_tag *pt = &(mm_pages[i]);
-        if (pt->page != 0) {
+        if (pt->pa.page != 0) {
             printk("non freed page found! ");
         }
     }

@@ -4,22 +4,20 @@
 #include "kernel/malloc.h"
 #include "kernel/tty.h"
 #include <kernel/printk.h>
-#include "pagemanager.h"
+#include <kernel/pic.h>
+#include "../include/defs.h"
+#include "../mm/mm.h"
+#include "../mm/pagemanager.h"
+#include "../cpu/cpu.h"
 #include "task.h"
 
-#define offset_of(type, member) \
-    (uint64_t)&(((type *)0)->member)
-
-#define TIME_SLICE_LENGTH     5000
+#define TIME_SLICE_LENGTH     200
 
 #define TCB_MEM_SIZE 1024
 static char tcb_mem[TCB_MEM_SIZE]; /* memory for tcb */
 
-const uint64_t TCB_rsp_offset = offset_of(struct thread_control_block, rsp);
-const uint64_t TCB_rsp0_offset = offset_of(struct thread_control_block, rsp0);
-const uint64_t TCB_tss_rsp0_offset = offset_of(struct thread_control_block, tss_rsp0);
 const uint64_t TCB_state_offset = offset_of(struct thread_control_block, state);
-const uint64_t TCB_cr3_offset = offset_of(struct thread_control_block, cr3);
+const uint64_t TCB_mm_offset = offset_of(struct thread_control_block, mm);
 
 struct thread_control_block *current_task_TCB = NULL;
 struct list_head *ready_tcb_list = NULL;
@@ -76,8 +74,7 @@ void kernel_clean_work(void) {
             list_del(&task->tcb_list);
         }
         printk("task %u terminated\n", task->task_id);
-        kfree_frame((pageframe_t)(((uint64_t)task->rsp0) & 0xFFFFFFFFFFFFF000));  /* locate the start of page frame */
-        kfree_frame((pageframe_t)(((uint64_t)task->rsp) & 0xFFFFFFFFFFFFF000));  /* locate the start of page frame */
+        mm_clean(task->mm);
         kfree(task);
     }
     block_task(PAUSED);
@@ -94,10 +91,11 @@ void init_scheduler(void) {
     /* init task */
     kmemory_init(tcb_mem,TCB_MEM_SIZE);
     kernel_idle_task = (struct thread_control_block*)kmalloc(sizeof(struct thread_control_block));
+    kernel_idle_task->mm = (struct mm_struct*)kmalloc(sizeof(struct mm_struct));
     kernel_idle_task->task_id = 0;
-    kernel_idle_task->rsp0 = 0; // kalloc_frame() + PAGE_SIZE;
-    kernel_idle_task->rsp =  0;
-    kernel_idle_task->cr3 = getcr3();
+    kernel_idle_task->mm->rsp0 = 0;
+    kernel_idle_task->mm->rsp =  0;
+    kernel_idle_task->mm->cr3 = getcr3();
     kernel_idle_task->state = RUNNING;
     kernel_idle_task->time_used = 0;
     current_task_TCB = kernel_idle_task;
@@ -120,23 +118,29 @@ struct thread_control_block *create_task(void (*ent)) {
         if (!new_task)
             return 0;
 
+        new_task->mm = (struct mm_struct *)kmalloc(sizeof(struct mm_struct));
+        if (!new_task->mm) {
+            kfree(new_task);
+            return 0;
+        }
+        if (mm_init(new_task->mm) != 0) {
+            kfree(new_task->mm);
+            kfree(new_task);
+            return 0;
+        }
+
         /* init new task */
         new_task->task_id = ++task_id_counter;
-        new_task->rsp0 = kalloc_frame() + PAGE_SIZE;
-        new_task->tss_rsp0 = new_task->rsp0;
-        new_task->rsp =  kalloc_frame() + PAGE_SIZE;
-        new_task->cr3 = getcr3();
         new_task->state = READY;
         new_task->time_used = 0;
 
-
         /* init stack */
-        PUSH_STACK(new_task->rsp0, ent); /* ret function */
-        PUSH_STACK(new_task->rsp0, task_start_up);
-        PUSH_STACK(new_task->rsp0, 0);   /* rax */
-        PUSH_STACK(new_task->rsp0, 0);   /* rbx */
-        PUSH_STACK(new_task->rsp0, 0);   /* rcx */
-        PUSH_STACK(new_task->rsp0, 0);   /* rsi */
+        PUSH_STACK(new_task->mm->rsp0, ent); /* ret function */
+        PUSH_STACK(new_task->mm->rsp0, task_start_up);
+        PUSH_STACK(new_task->mm->rsp0, 0);   /* rax */
+        PUSH_STACK(new_task->mm->rsp0, 0);   /* rbx */
+        PUSH_STACK(new_task->mm->rsp0, 0);   /* rcx */
+        PUSH_STACK(new_task->mm->rsp0, 0);   /* rsi */
 
         /* add to ready list */
         if (!ready_tcb_list) {
@@ -190,14 +194,16 @@ void update_time_used(void) {
 
 int irq_disable_counter = 0;
 void lock_scheduler() {
-    cli();
+    // cli();
+    IRQ_set_mask(0);
     irq_disable_counter++;
 }
 
 void unlock_scheduler() {
     irq_disable_counter--;
     if (irq_disable_counter == 0) {
-        sti();
+        // sti();
+        IRQ_clear_mask(0);
     }
 }
 
@@ -267,7 +273,8 @@ void unblock_task(struct thread_control_block *task) {
 
 void lock_stuff(void) {
 #ifndef SMP
-    cli();
+    // cli();
+    IRQ_set_mask(0);
     irq_disable_counter++;
     postpone_task_switches_counter++;
 #endif
@@ -285,7 +292,8 @@ void unlock_stuff(void) {
 
     irq_disable_counter--;
     if (irq_disable_counter == 0) {
-        sti();
+        // sti();
+        IRQ_clear_mask(0);
     }
 #endif
 }
@@ -320,6 +328,7 @@ void task_hook_in_timer_handler(void) {
             struct thread_control_block *task = container_of(sleeping_task_list, struct thread_control_block, tcb_list);
             while (task->sleep_expiry <= get_timer_count()) {
                 unblock_task(task);
+                if (!sleeping_task_list) break;
                 task = container_of(sleeping_task_list, struct thread_control_block, tcb_list);
                 anchor_task_list = sleeping_task_list;
             }

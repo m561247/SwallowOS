@@ -1,6 +1,5 @@
 #include "kernel/semaphore.h"
 #include "kernel/malloc.h"
-#include "pagemanager.h"
 #include "task.h"
 
 struct semaphore* create_semaphore(unsigned int max_count) {

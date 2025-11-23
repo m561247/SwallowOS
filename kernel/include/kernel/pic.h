@@ -1,6 +1,8 @@
 #ifndef _KERNEL_PIC_H
 #define _KERNEL_PIC_H
 
+#include <stdint.h>
+
 void PIC_init();
 void PIC_sendEOI(uint8_t irq);
 void PIC_disable(void);

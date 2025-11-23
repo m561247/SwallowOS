@@ -25,3 +25,7 @@ uint64_t get_task_id() {
 uint64_t get_rsp0() {
     return libc_do_syscall(3, NULL, NULL, NULL, NULL, NULL, NULL);
 }
+
+int putchar(int ic) {
+    return libc_do_syscall(4, ic, NULL, NULL, NULL, NULL, NULL);
+}

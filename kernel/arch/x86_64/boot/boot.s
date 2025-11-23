@@ -174,44 +174,7 @@ set_tss:
         shr $24, %eax
         movb %al, gdt_tss_base_3
 
-# set_page:
-#         movl $first_page_table, %edi 
-#         movl $0, %esi
-# 1:
-
-#         cmpl $(first_page_table + 4096 * 2), %edi     # 判断复制终点，这里复制两个pt的长度
-#         jge 3f
-
-#         # Map physical address as "present, writable". Note that this maps
-#         # .text and .rodata as writable. Mind security and map them as non-writable.
-#         movl %esi, %edx
-#         orl $0x007, %edx  # P、R/W、U/S
-#         movl %edx, (%edi) # 把edx的值（被映射的地址，即加载地址）赋给edi所指地址（页表项）
-
-# 2:
-#         # Size of page is 4096 bytes.
-#         addl $4096, %esi
-#         # Size of entries in boot_page_table1 is 4 bytes.
-#         addl $8, %edi                                  # 注意，64位页表单个项长度为8
-#         # Loop to the next entry if we haven't finished.
-#         loop 1b
-
-# 3:
-#         # Map VGA video memory to 0xC03FF000 as "present, writable".
-#         movl $(0x000B8000 | 0x007), second_page_table + 511 * 8
-#         movl $(first_page_table + 0x007), last_second_page_directory + 0 # 该场景下，虚拟地址与加载地址相同的section会映射到此
-#         movl $(second_page_table + 0x007), last_second_page_directory + 1 * 8
-
-#         # 同时映射一个没有offset的页表
-#         movl $(last_second_page_directory + 0x007), first_page_directory_ptr + 0
-
-#         # higher half 的页表，在最后一个pdpt的第510项
-#         movl $(last_second_page_directory + 0x007), last_page_directory_ptr + 510 * 8
-
-#         # pml4
-#         movl $(first_page_directory_ptr + 0x007), page_map_level4 + 0 * 8
-#         movl $(last_page_directory_ptr + 0x007), page_map_level4 + 511 * 8
-
+set_page:
         # vga pd
         movl $0x087, vga_page_directory + 0       # PS=1
         # kernel pdptr
@@ -220,7 +183,7 @@ set_tss:
         movl $(vga_page_directory + 0x007), kernel_page_directory_ptr + 511 * 8
 
         # pml4
-        movl $(kernel_page_directory_ptr + 0x007), page_map_level4 + 0 * 8
+        movl $(kernel_page_directory_ptr + 0x003), page_map_level4 + 0 * 8
         movl $(kernel_page_directory_ptr + 0x007), page_map_level4 + 511 * 8
 
 
@@ -255,22 +218,6 @@ load_tss:
         ltr %ax
 
         jmp $0x08, $(real64 - 0xffffffff80000000)
-
-
-        # movl $(boot_page_table1 + 0x003), boot_page_directory + 768 * 4 # 该场景下，虚拟地址与加载地址不同（相差0xC0000000）的section会映射到此
-
-        # # Set cr3 to the address of the boot_page_directory.
-        # movl $(boot_page_directory), %ecx
-        # movl %ecx, %cr3
-
-        # # Enable paging and the write-protect bit.
-        # movl %cr0, %ecx
-        # orl $0x80000000, %ecx
-        # movl %ecx, %cr0
-
-        # # Jump to higher half with an absolute jump. 
-        # lea 4f, %ecx
-        # jmp *%ecx
 
 .section .text
 .code64

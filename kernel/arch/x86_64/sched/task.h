@@ -1,8 +1,9 @@
-#ifndef _THREAD_H
-#define _THREAD_H
+#ifndef _TASK_H
+#define _TASK_H
 
 #include <stdint.h>
 #include <kernel/list.h>
+#include "../mm/mm.h"
 
 typedef enum {
     RUNNING,
@@ -15,11 +16,7 @@ typedef enum {
 
 struct thread_control_block {
     unsigned long task_id;
-    void* rsp;                              /* the task's kernel stack */
-    void* tss_rsp0;                         /* top of kernel stack to set on tss->rsp0*/ 
-    void* rsp0;                             /* kernel stack */
-    uint32_t cr3;                              /* the task's virtual address space*/
-    // struct thread_control_block *next;      /* next task field */
+    struct mm_struct *mm;
     state_t state;                          /* state field */
     unsigned long time_used;
     unsigned long sleep_expiry;
@@ -28,7 +25,6 @@ struct thread_control_block {
 };
 
 extern void switch_to_task(struct thread_control_block *next_thread);
-extern unsigned int getcr3();
 void init_scheduler(void);
 struct thread_control_block *create_task(void (*ent));
 void schedule();
@@ -44,11 +40,5 @@ void task_hook_in_timer_handler(void);
 void kernel_idle_work(void);
 
 extern struct thread_control_block *current_task_TCB;
-
-
-extern const uint64_t TCB_rsp_offset;
-extern const uint64_t TCB_rsp0_offset;
-extern const uint64_t TCB_cr3_offset;
-extern const uint64_t TCB_state_offset;
 
 #endif
